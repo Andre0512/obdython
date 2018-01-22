@@ -35,8 +35,9 @@ import logging
 
 class OBDPort:
     """OBDPort abstracts all communication with OBD-II device."""
+
     def __init__(self, device):
-        """Initializes port by resetting device and getting supported PIDs. """
+        """Initializes port by resetting device and gettings supported PIDs. """
         self.logger = logging.getLogger(__name__)
         self.device = device
         self.timeout = self.device.timeout
@@ -132,10 +133,12 @@ class OBDPort:
             buffer = ""
             starttime = time.time()
             while 1:
-                c = self.device.read(1)
-                if c is not False and c != Device.ERROR:
+                c = self.device.read(18)
+                if c != False and c != Device.ERROR:
                     c = c.decode('utf-8')
-                elif c is False:
+                    c = c[12:]
+                    c = c.replace(" ", "")
+                elif c == False:
                     if block:
                         continue
                     else:
@@ -149,7 +152,7 @@ class OBDPort:
                     buffer = buffer + c
                 if time.time() - starttime > self.timeout:
                     return Device.ERROR
-                    break
+                break
                 self.logger.debug(buffer)
             return buffer
         else:
@@ -159,7 +162,7 @@ class OBDPort:
     def ready(self):
         c = self.device.read(1)
         starttime = time.time()
-        while c is not False:
+        while c != False:
             c = self.device.read(1)
             if time.time() - starttime > self.timeout:
                 return Device.ERROR
@@ -173,10 +176,10 @@ class OBDPort:
         cmd = sensor.cmd
         self.device.send(cmd)
         data = self.get_result()
-        if data != Device.ERROR and data is not False:
+        if data != Device.ERROR and data != False:
             data = self.interpret_result(data)
             if data != "NODATA" and data != "UNABLETOCONNECT" and data != "BADDATA":
-                data = convert(data, sensor.value, 5)
+                data = convert(data, sensor.value, 0)
         else:
             return "NORESPONSE"
         return data
@@ -184,7 +187,7 @@ class OBDPort:
     # return string of sensor name and value from sensor index
     def sensor(self, sensor_shortname):
         """Returns 3-tuple of given sensors. 3-tuple consists of
-        (Sensor Name (string), Sensor Value (string), Sensor Unit (string) ) """
+		(Sensor Name (string), Sensor Value (string), Sensor Unit (string) ) """
         if self.ready() != Device.ERROR:
             sensor = SENSORS[sensor_shortname]
             r = self.get_sensor_value(sensor)
@@ -206,7 +209,8 @@ class Device:
     ERROR = -1
     SUCCESS = 0
 
-    def __init__(self, type, serial_device="", baud=38400, databits=8, par=serial.PARITY_NONE, stopbits=1, timeout=60, bluetooth_mac="", bluetooth_channel=""):
+    def __init__(self, type, serial_device="", baud=38400, databits=8, par=serial.PARITY_NONE, stopbits=1, timeout=60,
+                 bluetooth_mac="", bluetooth_channel=""):
         self.State = 0  # state SERIAL is 1 connected, 0 disconnected (connection failed)
         self.port = None
         self.type = type
@@ -225,7 +229,8 @@ class Device:
             return self.SUCCESS
         if self.type == self.types['serial']:
             try:
-                self.port = serial.Serial(self.serial_device, self.baud, parity=self.parity, stopbits=self.stopbits, writeTimeout=0, timeout=0)
+                self.port = serial.Serial(self.serial_device, self.baud, parity=self.parity, stopbits=self.stopbits,
+                                          writeTimeout=0, timeout=0)
                 self.State = 1
             except Exception:
                 return self.ERROR
@@ -271,6 +276,11 @@ class Device:
                     return self.ERROR
             if self.type == self.types['bluetooth']:
                 try:
+                    # print "Test"
+                    # print self.port.recv(18)
+                    time.sleep(0.1)
+                    # print self.port.recv(2)
+                    # return "10C3"
                     return self.port.recv(length)
                 except bluetooth.btcommon.BluetoothError:
                     return False  # a terrible hack
@@ -292,7 +302,7 @@ class Device:
 
 
 def convert(code, function, offset):
-    if inspect.getargspec(function)[1] is not None:
+    if inspect.getargspec(function)[1] != None:
         return function(code)
     elif len(inspect.getargspec(function)[0]) == 1:
         return function(code[offset])
@@ -317,10 +327,12 @@ def status_since_dtc_cleared(a, b, c, d):
         res['catalyst_test_available'] = bits[position_bitstring(0xC0)] | (1 - bits[position_bitstring(0xD0)])
         res['heated_catalyst_test_available'] = bits[position_bitstring(0xC1)] | (1 - bits[position_bitstring(0xD1)])
         res['evaporative_system_test_available'] = bits[position_bitstring(0xC2)] | (1 - bits[position_bitstring(0xD2)])
-        res['secondary_air_system_test_available'] = bits[position_bitstring(0xC3)] | (1 - bits[position_bitstring(0xD3)])
+        res['secondary_air_system_test_available'] = bits[position_bitstring(0xC3)] | (
+                1 - bits[position_bitstring(0xD3)])
         res['ac_refrigerant_test_available'] = bits[position_bitstring(0xC4)] | (1 - bits[position_bitstring(0xD4)])
         res['oxygen_sensor_test_available'] = bits[position_bitstring(0xC5)] | (1 - bits[position_bitstring(0xD5)])
-        res['oxygen_sensor_heater_test_available'] = bits[position_bitstring(0xC6)] | (1 - bits[position_bitstring(0xD6)])
+        res['oxygen_sensor_heater_test_available'] = bits[position_bitstring(0xC6)] | (
+                1 - bits[position_bitstring(0xD6)])
         res['egr_system_test_available'] = bits[position_bitstring(0xC7)] | (1 - bits[position_bitstring(0xD7)])
     else:
         res['compression_ignition'] = 1
@@ -467,8 +479,7 @@ def bitstring_to_int(start, end, bits):
 
 def hex_to_bitstring(a, b, c, d):
     x = 16777216 * a + 65536 * b + 256 * c + d
-    if x == 0:
-        return [0] * 32
+    if x == 0: return [0] * 32
     bit = []
     while x:
         bit.append(x % 2)
@@ -492,6 +503,7 @@ class Sensor:
         self.value = sensorValueFunction
         self.unit = u
 
+
 SENSORS = {  # TODO: Complete definitions for all PIDs
     'pids': Sensor("pids", "Supported PIDs", "0100", hex_to_bitstring, ""),
     'dtc_status': Sensor("dtc_status", "Status Since DTC Cleared", "0101", status_since_dtc_cleared, ""),
@@ -499,10 +511,14 @@ SENSORS = {  # TODO: Complete definitions for all PIDs
     'fuel_status': Sensor("fuel_status", "Fuel System Status", "0103", fuel_system_status, ""),
     'load': Sensor("load", "Calculated Load Value", "01041", lambda a: a * 100 / 255, ""),
     'temp': Sensor("temp", "Coolant Temperature", "0105", lambda a: a - 40, "C"),
-    'short_term_fuel_trim_1': Sensor("short_term_fuel_trim_1", "Short Term Fuel Trim", "0106", lambda a: (a - 128) * 100 / 128, "%"),
-    'long_term_fuel_trim_1': Sensor("long_term_fuel_trim_1", "Long Term Fuel Trim", "0107", lambda a: (a - 128) * 100 / 128, "%"),
-    'short_term_fuel_trim_2': Sensor("short_term_fuel_trim_2", "Short Term Fuel Trim", "0108", lambda a: (a - 128) * 100 / 128, "%"),
-    'long_term_fuel_trim_2': Sensor("long_term_fuel_trim_2", "Long Term Fuel Trim", "0109", lambda a: (a - 128) * 100 / 128, "%"),
+    'short_term_fuel_trim_1': Sensor("short_term_fuel_trim_1", "Short Term Fuel Trim", "0106",
+                                     lambda a: (a - 128) * 100 / 128, "%"),
+    'long_term_fuel_trim_1': Sensor("long_term_fuel_trim_1", "Long Term Fuel Trim", "0107",
+                                    lambda a: (a - 128) * 100 / 128, "%"),
+    'short_term_fuel_trim_2': Sensor("short_term_fuel_trim_2", "Short Term Fuel Trim", "0108",
+                                     lambda a: (a - 128) * 100 / 128, "%"),
+    'long_term_fuel_trim_2': Sensor("long_term_fuel_trim_2", "Long Term Fuel Trim", "0109",
+                                    lambda a: (a - 128) * 100 / 128, "%"),
     'fuel_pressure': Sensor("fuel_pressure", "Fuel Rail Pressure", "010A", lambda a: a * 3, "kPa"),
     'manifold_pressure': Sensor("manifold_pressure", "Intake Manifold Pressure", "010B", lambda a: a, "kPa"),
     'rpm': Sensor("rpm", "Engine RPM", "010C1", lambda a, b: (a * 256 + b) / 4, "rpm"),
@@ -511,7 +527,8 @@ SENSORS = {  # TODO: Complete definitions for all PIDs
     'intake_air_temp': Sensor("intake_air_temp", "Intake Air Temp", "010F", lambda a: a - 40, "C"),
     'maf': Sensor("maf", "Air Flow Rate (MAF)", "0110", lambda a, b: ((a * 256) + b) / 100, "grams/sec"),
     'throttle_pos': Sensor("throttle_pos", "Throttle Position", "01111", lambda a: a * 100 / 255, "%"),
-    'secondary_air_status': Sensor("secondary_air_status", "Secondary Air Status", "0112", secondary_air_status_calc, ""),
+    'secondary_air_status': Sensor("secondary_air_status", "Secondary Air Status", "0112", secondary_air_status_calc,
+                                   ""),
     'o2_sensor_positions': Sensor("o2_sensor_positions", "Location of O2 sensors", "0113", oxygen_sensor_location, ""),
     'o211': Sensor("o211", "O2 Sensor: 1 - 1", "0114", lambda a, b: (a / 200, (b - 128) * 100 / 128), "volts, %"),
     'o212': Sensor("o212", "O2 Sensor: 1 - 2", "0115", lambda a, b: (a / 200, (b - 128) * 100 / 128), "volts, %"),
@@ -522,7 +539,8 @@ SENSORS = {  # TODO: Complete definitions for all PIDs
     'o223': Sensor("o223", "O2 Sensor: 2 - 3", "011A", lambda a, b: (a / 200, (b - 128) * 100 / 128), "volts, %"),
     'o224': Sensor("o224", "O2 Sensor: 2 - 4", "011B", lambda a, b: (a / 200, (b - 128) * 100 / 128), "volts, %"),
     'obd_standard': Sensor("obd_standard", "OBD Designation", "011C", obd_standard_calc, ""),
-    'o2_sensor_position_b': Sensor("o2_sensor_position_b", "Location of O2 sensors", "011D", oxygen_sensor_location_2, ""),
+    'o2_sensor_position_b': Sensor("o2_sensor_position_b", "Location of O2 sensors", "011D", oxygen_sensor_location_2,
+                                   ""),
     'aux_input': Sensor("aux_input", "Aux input status", "011E", lambda a: a & 0x01 >= 1, ""),
     'engine_time': Sensor("engine_time", "Time Since Engine Start", "011F", lambda a, b: a * 256 + b, "min"),
 }
